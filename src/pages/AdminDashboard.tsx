@@ -122,6 +122,10 @@ export default function AdminDashboard() {
             <BarChart3 size={16} />
             রিপোর্ট ডাউনলোড
           </button>
+          <button className="px-5 py-2.5 bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-light rounded-2xl text-xs font-bold hover:bg-primary/20 transition-all flex items-center gap-2">
+            <MoreVertical size={16} className="rotate-90" />
+            GitHub repositories
+          </button>
         </div>
       </div>
 
@@ -436,6 +440,29 @@ export default function AdminDashboard() {
                     ))}
                   </div>
                 </div>
+
+                {pendingBusinesses.some(b => b.id === selectedHistory.id) && (
+                  <div className="pt-8 mt-8 border-t border-gray-100 dark:border-slate-800 space-y-4">
+                    <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Quick Moderator Actions</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button 
+                        onClick={() => {
+                          handleApprove(selectedHistory.id);
+                          setSelectedHistory(null);
+                        }}
+                        className="flex items-center justify-center gap-2 py-3 bg-primary text-white rounded-xl text-xs font-bold shadow-lg shadow-primary/20 hover:-translate-y-0.5 transition-all"
+                      >
+                        <CheckCircle size={16} /> Approve
+                      </button>
+                      <button 
+                        onClick={() => setModeratingId(selectedHistory.id)}
+                        className="flex items-center justify-center gap-2 py-3 bg-red-50 dark:bg-red-900/10 text-red-600 rounded-xl text-xs font-bold hover:bg-red-100 transition-all"
+                      >
+                        <XCircle size={16} /> Reject
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="p-8 border-t border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/50">

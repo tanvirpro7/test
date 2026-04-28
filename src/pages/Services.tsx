@@ -11,7 +11,7 @@ export default function Services() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'rating' | 'name'>('rating');
 
-  // Sync state when URL params change (e.g. clicking category icon on Home)
+  // GitHub repositories state when URL params change (e.g. clicking category icon on Home)
   useEffect(() => {
     setSelectedCategory(searchParams.get('category') || 'all');
   }, [searchParams]);
