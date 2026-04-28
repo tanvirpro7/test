@@ -1,0 +1,6 @@
+{
+  "name": "Phulpur Hub",
+  "description": "Professional local service platform for Phulpur, Bangladesh. Find doctors, transport, jobs, and news.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["Local Service Listings", "Community News", "Job Board"]
+}
