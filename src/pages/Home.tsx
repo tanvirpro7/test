@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { Search, PlusCircle, ArrowRight, MessageSquare, MapPin, Star, Bell } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { categories, mockBusinesses, mockNews } from '../constants';

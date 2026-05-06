@@ -1,110 +1,129 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   BarChart3, Users, Newspaper, Briefcase, CheckCircle2, XCircle, 
   Clock, Search, Filter, MoreVertical, ShieldCheck, Star,
-  History, ArrowUpRight, Eye, CheckCircle
+  History, ArrowUpRight, Eye, CheckCircle, LogIn
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { mockBusinesses } from '../constants';
+import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp, getDocs } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType, signInWithGoogle } from '../lib/firebase';
+import { useAuth } from '../contexts/AuthContext';
 
 type Tab = 'businesses' | 'news' | 'jobs';
 
-interface BusinessAction {
-  id: string;
-  type: 'approved' | 'rejected' | 'updated';
-  admin: string;
-  date: string;
-  note?: string;
-}
-
-interface PendingBusiness {
-  id: string;
-  name: string;
-  owner: string;
-  date: string;
-  category: string;
-  address: string;
-  phone: string;
-  history: BusinessAction[];
-}
-
 export default function AdminDashboard() {
+  const { user, isAdmin, loading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('businesses');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedHistory, setSelectedHistory] = useState<PendingBusiness | null>(null);
+  const [selectedHistory, setSelectedHistory] = useState<any | null>(null);
   const [rejectionNote, setRejectionNote] = useState('');
   const [moderatingId, setModeratingId] = useState<string | null>(null);
+  
+  const [pendingBusinesses, setPendingBusinesses] = useState<any[]>([]);
+  const [liveBusinesses, setLiveBusinesses] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Expanded mock pending submissions with history
-  const [pendingBusinesses, setPendingBusinesses] = useState<PendingBusiness[]>([
-    { 
-      id: 'p1', 
-      name: 'Al-Madina Pharmacy', 
-      owner: 'Rahim Ali', 
-      date: '2 hours ago', 
-      category: 'pharmacy',
-      address: 'Phulpur Bazar, Mymensingh',
-      phone: '01712-XXXXXX',
-      history: [
-        { id: 'h1', type: 'updated', admin: 'System', date: '2 hours ago', note: 'Initial submission' }
-      ]
-    },
-    { 
-      id: 'p2', 
-      name: 'Fresh Fruits Corner', 
-      owner: 'Karim Uddin', 
-      date: '5 hours ago', 
-      category: 'market',
-      address: 'Taltola Road, Phulpur',
-      phone: '01855-XXXXXX',
-      history: [
-        { id: 'h2', type: 'updated', admin: 'System', date: '5 hours ago', note: 'Initial submission' }
-      ]
-    },
-  ]);
+  useEffect(() => {
+    if (!isAdmin) return;
 
-  const [liveBusinesses, setLiveBusinesses] = useState(mockBusinesses.slice(0, 5).map(b => ({
-    ...b,
-    history: [
-      { id: `h-${b.id}`, type: 'approved' as const, admin: 'Admin Tanvir', date: 'Yesterday', note: 'Verified documentation' }
-    ]
-  })));
+    setLoading(true);
+    
+    // Listen for pending businesses
+    const qPending = query(collection(db, 'businesses'), where('status', '==', 'pending'));
+    const unsubscribePending = onSnapshot(qPending, (snapshot) => {
+      const biz = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setPendingBusinesses(biz);
+      setLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'businesses');
+    });
 
-  const handleApprove = (id: string) => {
-    const biz = pendingBusinesses.find(b => b.id === id);
-    if (!biz) return;
+    // Listen for approved businesses
+    const qLive = query(collection(db, 'businesses'), where('status', '==', 'approved'));
+    const unsubscribeLive = onSnapshot(qLive, (snapshot) => {
+      const biz = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setLiveBusinesses(biz);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'businesses');
+    });
 
-    const approvedBiz = {
-      ...biz,
-      id: `live-${biz.id}`,
-      rating: 0,
-      description: 'New service approved by admin.',
-      image: 'https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&q=80&w=400',
-      history: [
-        ...biz.history,
-        { id: Date.now().toString(), type: 'approved' as const, admin: 'Admin Tanvir', date: 'Just now', note: 'Application reviewed and verified' }
-      ]
+    return () => {
+      unsubscribePending();
+      unsubscribeLive();
     };
+  }, [isAdmin]);
 
-    setLiveBusinesses([approvedBiz as any, ...liveBusinesses]);
-    setPendingBusinesses(pendingBusinesses.filter(b => b.id !== id));
+  const handleApprove = async (id: string) => {
+    try {
+      const bizRef = doc(db, 'businesses', id);
+      await updateDoc(bizRef, {
+        status: 'approved',
+        updatedAt: serverTimestamp(),
+        approvedBy: user?.uid,
+        approvedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `businesses/${id}`);
+    }
   };
 
-  const handleReject = (id: string) => {
+  const handleReject = async (id: string) => {
     if (!rejectionNote) {
       setModeratingId(id);
       return;
     }
 
-    setPendingBusinesses(pendingBusinesses.filter(b => b.id !== id));
-    setModeratingId(null);
-    setRejectionNote('');
+    try {
+      const bizRef = doc(db, 'businesses', id);
+      await updateDoc(bizRef, {
+        status: 'rejected',
+        rejectionReason: rejectionNote,
+        updatedAt: serverTimestamp(),
+        rejectedBy: user?.uid,
+        rejectedAt: serverTimestamp(),
+      });
+      setModeratingId(null);
+      setRejectionNote('');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `businesses/${id}`);
+    }
   };
+
+  if (authLoading) {
+    return (
+      <div className="h-[60vh] flex items-center justify-center">
+        <div className="w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="max-w-2xl mx-auto h-[70vh] flex flex-col items-center justify-center text-center space-y-8 p-8">
+        <div className="w-24 h-24 bg-red-100 dark:bg-red-900/20 rounded-[2.5rem] flex items-center justify-center text-red-600 shadow-xl">
+           <ShieldCheck size={48} />
+        </div>
+        <div className="space-y-3">
+           <h2 className="text-3xl font-black text-gray-900 dark:text-white">Access Restricted</h2>
+           <p className="text-gray-500 dark:text-gray-400 max-w-md mx-auto">This area is reserved for Phulpur Hub administrators only. If you believe this is an error, please contact support.</p>
+        </div>
+        {!user && (
+          <button 
+            onClick={signInWithGoogle}
+            className="flex items-center gap-3 px-8 py-4 bg-primary text-white rounded-2xl font-bold shadow-lg shadow-primary/20 hover:-translate-y-1 transition-all"
+          >
+            <LogIn size={20} />
+            Sign in as Admin
+          </button>
+        )}
+      </div>
+    );
+  }
 
   const stats = [
     { label: 'Total Users', value: '1,248', icon: Users, color: 'text-blue-600', bg: 'bg-blue-50' },
     { label: 'Pending Apps', value: pendingBusinesses.length.toString(), icon: Clock, color: 'text-orange-600', bg: 'bg-orange-50' },
-    { label: 'Live Services', value: mockBusinesses.length.toString(), icon: ShieldCheck, color: 'text-green-600', bg: 'bg-green-50' },
+    { label: 'Live Services', value: liveBusinesses.length.toString(), icon: ShieldCheck, color: 'text-green-600', bg: 'bg-green-50' },
   ];
 
   return (
@@ -229,11 +248,11 @@ export default function AdminDashboard() {
                                 {biz.name}
                                 <span className="px-2 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 text-[10px] font-bold rounded-md uppercase tracking-tighter">{biz.category}</span>
                               </h5>
-                              <p className="text-sm text-gray-500 font-medium">{biz.owner}</p>
+                              <p className="text-sm text-gray-500 font-medium">{biz.ownerName || biz.owner}</p>
                               <div className="flex gap-4 mt-2 text-xs text-gray-400">
-                                <span className="flex items-center gap-1"><Clock size={12} /> {biz.date}</span>
+                                <span className="flex items-center gap-1"><Clock size={12} /> {biz.createdAt?.toDate ? biz.createdAt.toDate().toLocaleDateString() : 'Just now'}</span>
                                 <span className="flex items-center gap-1 hover:text-primary cursor-pointer transition-colors" onClick={() => setSelectedHistory(biz)}>
-                                  <History size={12} /> View History
+                                  <History size={12} /> View Details
                                 </span>
                               </div>
                             </div>
@@ -397,7 +416,7 @@ export default function AdminDashboard() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-gray-50 dark:bg-slate-800 p-4 rounded-2xl">
                       <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Owner</p>
-                      <p className="text-sm font-bold dark:text-white">{selectedHistory.owner}</p>
+                      <p className="text-sm font-bold dark:text-white">{selectedHistory.ownerName || selectedHistory.owner}</p>
                     </div>
                     <div className="bg-gray-50 dark:bg-slate-800 p-4 rounded-2xl">
                       <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Phone</p>
@@ -413,31 +432,33 @@ export default function AdminDashboard() {
                 <div className="space-y-6">
                   <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Timeline</h4>
                   <div className="relative pl-6 space-y-8 before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-0.5 before:bg-gray-100 dark:before:bg-slate-800">
-                    {selectedHistory.history.map((log) => (
-                      <div key={log.id} className="relative">
-                        <div className={`absolute -left-[2.35rem] w-6 h-6 rounded-full border-4 border-white dark:border-slate-900 flex items-center justify-center ${
-                          log.type === 'approved' ? 'bg-green-500' : 
-                          log.type === 'rejected' ? 'bg-red-500' : 'bg-blue-400'
-                        }`}>
-                          {log.type === 'approved' && <CheckCircle2 size={12} className="text-white" />}
-                          {log.type === 'rejected' && <XCircle size={12} className="text-white" />}
-                          {log.type === 'updated' && <ArrowUpRight size={12} className="text-white" />}
+                    <div className="relative">
+                      <div className="absolute -left-[2.15rem] w-5 h-5 rounded-full border-4 border-white dark:border-slate-900 bg-blue-400 flex items-center justify-center">
+                        <ArrowUpRight size={10} className="text-white" />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs font-bold text-gray-900 dark:text-white">Submission Created</p>
+                        <p className="text-[10px] text-gray-400">{selectedHistory.createdAt?.toDate ? selectedHistory.createdAt.toDate().toLocaleString() : 'N/A'}</p>
+                      </div>
+                    </div>
+                    {selectedHistory.status !== 'pending' && (
+                      <div className="relative">
+                        <div className={`absolute -left-[2.15rem] w-5 h-5 rounded-full border-4 border-white dark:border-slate-900 flex items-center justify-center ${selectedHistory.status === 'approved' ? 'bg-green-500' : 'bg-red-500'}`}>
+                          {selectedHistory.status === 'approved' ? <CheckCircle2 size={10} className="text-white" /> : <XCircle size={10} className="text-white" />}
                         </div>
                         <div className="space-y-1">
                           <p className="text-xs font-bold text-gray-900 dark:text-white">
-                            {log.type === 'approved' && 'Application Approved'}
-                            {log.type === 'rejected' && 'Application Rejected'}
-                            {log.type === 'updated' && 'Information Updated'}
+                            {selectedHistory.status === 'approved' ? 'Application Approved' : 'Application Rejected'}
                           </p>
-                          <p className="text-xs text-gray-400">By <span className="text-primary font-bold">{log.admin}</span> • {log.date}</p>
-                          {log.note && (
-                            <div className="mt-2 p-3 bg-gray-50/50 dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-800 italic text-xs text-gray-500">
-                              "{log.note}"
-                            </div>
+                          <p className="text-[10px] text-gray-400">Processed at {selectedHistory.updatedAt?.toDate ? selectedHistory.updatedAt.toDate().toLocaleString() : 'N/A'}</p>
+                          {selectedHistory.rejectionReason && (
+                             <div className="mt-2 p-3 bg-red-50/50 dark:bg-red-900/10 rounded-xl border border-red-100 dark:border-red-900/20 text-[10px] text-red-600 dark:text-red-400">
+                                Reason: "{selectedHistory.rejectionReason}"
+                             </div>
                           )}
                         </div>
                       </div>
-                    ))}
+                    )}
                   </div>
                 </div>
 

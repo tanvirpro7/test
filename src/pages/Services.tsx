@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { Search, Filter, Phone, Clock, MapPin, Star, ChevronLeft } from 'lucide-react';
 import { categories, mockBusinesses } from '../constants';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 
 export default function Services() {
   const [searchParams] = useSearchParams();
@@ -10,22 +12,44 @@ export default function Services() {
   const [selectedCategory, setSelectedCategory] = useState(initialCategory);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'rating' | 'name'>('rating');
+  const [businesses, setBusinesses] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // GitHub repositories state when URL params change (e.g. clicking category icon on Home)
+  // Fetch businesses from Firestore
+  useEffect(() => {
+    setLoading(true);
+    const q = query(collection(db, 'businesses'), where('status', '==', 'approved'));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const firestoreBiz = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Combine with mock data for now so the app isn't empty, but prioritize Firestore
+      const combined = [...firestoreBiz, ...mockBusinesses.filter(mb => !firestoreBiz.some(fb => fb.id === mb.id))];
+      setBusinesses(combined);
+      setLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'businesses');
+      setBusinesses(mockBusinesses); // Fallback to mock on error
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Sync state when URL params change (e.g. clicking category icon on Home)
   useEffect(() => {
     setSelectedCategory(searchParams.get('category') || 'all');
   }, [searchParams]);
 
-  const filteredBusinesses = mockBusinesses
+  const filteredBusinesses = businesses
     .filter(biz => {
       const matchesCategory = selectedCategory === 'all' || biz.category === selectedCategory;
-      const matchesSearch = biz.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                           biz.description.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesSearch = (biz.name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) || 
+                           (biz.description?.toLowerCase() || '').includes(searchQuery.toLowerCase());
       return matchesCategory && matchesSearch;
     })
     .sort((a, b) => {
-      if (sortBy === 'rating') return b.rating - a.rating;
-      return a.name.localeCompare(b.name);
+      if (sortBy === 'rating') return (b.rating || 0) - (a.rating || 0);
+      return (a.name || '').localeCompare(b.name || '');
     });
 
   return (
@@ -101,7 +125,12 @@ export default function Services() {
 
       {/* List Grid */}
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredBusinesses.map((biz) => (
+        {loading ? (
+          <div className="col-span-full py-20 flex flex-col items-center justify-center space-y-4">
+            <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+            <p className="text-gray-500 font-bold">সার্ভিস লোড হচ্ছে...</p>
+          </div>
+        ) : filteredBusinesses.map((biz) => (
           <div key={biz.id} className="bg-white dark:bg-slate-900 rounded-3xl border border-gray-100 dark:border-slate-800 overflow-hidden hover:shadow-2xl hover:shadow-gray-200 dark:hover:shadow-slate-950 transition-all group flex flex-col">
             <div className="relative h-48">
               <img src={biz.image} alt={biz.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />

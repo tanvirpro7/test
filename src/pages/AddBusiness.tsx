@@ -1,10 +1,15 @@
 import React, { useState } from 'react';
-import { ChevronLeft, Camera, UploadCloud, Info, CheckCircle2 } from 'lucide-react';
+import { ChevronLeft, UploadCloud, Info, CheckCircle2, LogIn } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { categories } from '../constants';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType, signInWithGoogle } from '../lib/firebase';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function AddBusiness() {
+  const { user } = useAuth();
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     category: '',
@@ -73,26 +78,73 @@ export default function AddBusiness() {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) {
+      signInWithGoogle();
+      return;
+    }
+    
     if (validate()) {
-      setSubmitted(true);
+      setIsSubmitting(true);
+      try {
+        const submissionData = {
+          ...formData,
+          ownerId: user.uid,
+          ownerName: user.displayName,
+          ownerEmail: user.email,
+          status: 'pending',
+          rating: 0,
+          reviewCount: 0,
+          image: 'https://images.unsplash.com/photo-1542744173-8e7e53415bb0?auto=format&fit=crop&q=80&w=400', // Default placeholder
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        };
+        
+        await addDoc(collection(db, 'businesses'), submissionData);
+        setSubmitted(true);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.CREATE, 'businesses');
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
   if (submitted) {
     return (
       <div className="max-w-2xl mx-auto h-[70vh] flex flex-col items-center justify-center text-center space-y-6">
-        <div className="w-24 h-24 bg-green-50 text-green-500 rounded-full flex items-center justify-center animate-bounce">
+        <div className="w-24 h-24 bg-green-50 dark:bg-green-900/20 text-green-500 rounded-full flex items-center justify-center animate-bounce">
            <CheckCircle2 size={64} />
         </div>
         <div className="space-y-2">
-           <h2 className="text-3xl font-extrabold text-gray-900">আবেদন সফল হয়েছে!</h2>
-           <p className="text-gray-500 font-medium">আপনার ব্যবসায়ের তথ্যটি রিভিউ করার পর অ্যাডমিন দ্বারা পাবলিশ করা হবে। ধন্যবাদ।</p>
+           <h2 className="text-3xl font-extrabold text-gray-900 dark:text-white">আবেদন সফল হয়েছে!</h2>
+           <p className="text-gray-500 dark:text-gray-400 font-medium">আপনার ব্যবসায়ের তথ্যটি রিভিউ করার পর অ্যাডমিন দ্বারা পাবলিশ করা হবে। ধন্যবাদ।</p>
         </div>
         <Link to="/" className="px-8 py-3 bg-primary text-white rounded-full font-bold shadow-lg shadow-primary/20 transition-all active:scale-95">
            হোম পেজে ফিরে যান
         </Link>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="max-w-2xl mx-auto h-[70vh] flex flex-col items-center justify-center text-center space-y-8 p-8">
+        <div className="w-24 h-24 bg-primary/10 rounded-[2.5rem] flex items-center justify-center text-primary shadow-xl">
+           <UploadCloud size={48} />
+        </div>
+        <div className="space-y-3">
+           <h2 className="text-3xl font-black text-gray-900 dark:text-white">Sign in to add your business</h2>
+           <p className="text-gray-500 dark:text-gray-400 max-w-md mx-auto">You need to be signed in to submit and manage your business listings in Phulpur Hub.</p>
+        </div>
+        <button 
+          onClick={signInWithGoogle}
+          className="flex items-center gap-3 px-8 py-4 bg-primary text-white rounded-2xl font-bold shadow-lg shadow-primary/20 hover:-translate-y-1 transition-all"
+        >
+          <LogIn size={20} />
+          Sign in with Google
+        </button>
       </div>
     );
   }
@@ -271,8 +323,17 @@ export default function AddBusiness() {
           </div>
         </div>
 
-        <button type="submit" className="w-full py-4 bg-primary text-white rounded-2xl font-extrabold text-lg shadow-xl shadow-primary/20 hover:bg-primary-dark transition-all transform active:scale-95">
-           আবেদন জমা দিন
+        <button 
+          type="submit" 
+          disabled={isSubmitting}
+          className={`w-full py-4 bg-primary text-white rounded-2xl font-extrabold text-lg shadow-xl shadow-primary/20 hover:bg-primary-dark transition-all transform active:scale-95 flex items-center justify-center gap-3 ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
+        >
+          {isSubmitting ? (
+            <>
+              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              প্রক্রিয়া করা হচ্ছে...
+            </>
+          ) : 'আবেদন জমা দিন'}
         </button>
 
         <p className="text-center text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-4">

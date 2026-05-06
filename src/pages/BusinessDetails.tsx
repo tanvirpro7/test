@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ChevronLeft, Star, Phone, MapPin, Clock, Share2, Heart, ShieldCheck, MessageSquare, PlusCircle, X, ChevronRight } from 'lucide-react';
 import { mockBusinesses, categories } from '../constants';
 import { motion, AnimatePresence } from 'motion/react';
+import { doc, getDoc } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 
 export default function BusinessDetails() {
   const { id } = useParams();
@@ -10,8 +12,44 @@ export default function BusinessDetails() {
   const [galleryIndex, setGalleryIndex] = useState(0);
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [bookingData, setBookingData] = useState({ date: '', time: '', note: '' });
+  const [business, setBusiness] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const business = mockBusinesses.find(b => b.id === id);
+  useEffect(() => {
+    async function fetchBusiness() {
+      if (!id) return;
+      setLoading(true);
+      try {
+        const bizRef = doc(db, 'businesses', id);
+        const bizSnap = await getDoc(bizRef);
+        
+        if (bizSnap.exists()) {
+          setBusiness({ id: bizSnap.id, ...bizSnap.data() });
+        } else {
+          // Fallback to mock if not found in Firestore
+          const mockBiz = mockBusinesses.find(b => b.id === id);
+          setBusiness(mockBiz || null);
+        }
+      } catch (error) {
+        handleFirestoreError(error, OperationType.GET, `businesses/${id}`);
+        // Fallback to mock on error
+        const mockBiz = mockBusinesses.find(b => b.id === id);
+        setBusiness(mockBiz || null);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchBusiness();
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div className="h-[60vh] flex flex-col items-center justify-center space-y-4">
+        <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+        <p className="text-gray-500 font-bold">সার্ভিস বিস্তারিত লোড হচ্ছে...</p>
+      </div>
+    );
+  }
 
   if (!business) {
     return (
